@@ -30,14 +30,42 @@ async function run() {
     const database = client.db(process.env.DATABASE_NAME);
 
     // Collection
-    const usersCollection = database.collection("users");
+    const usersCollection = database.collection("user");
+const campaignsCollection = database.collection("campaigns");
 
     // Test Route
-    app.get("/users", async (req, res) => {
+    app.get("/user", async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
 
+
+// Creator Route
+
+app.post("/campaigns", async (req, res) => {
+  const campaign = req.body;
+  const result = await campaignsCollection.insertOne(campaign);
+  res.send(result);
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
     console.log("✅ MongoDB Connected");
   } catch (error) {
     console.error(error);
