@@ -49,7 +49,24 @@ app.post("/campaigns", async (req, res) => {
 });
 
 
+app.get("/campaigns/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await campaignsCollection
+      .find({ creatorEmail: email })
+      .toArray();
 
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+});
+// http://localhost:5000/campaigns/email/jothi@gmail.com 
 
 
 
