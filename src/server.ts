@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 
 dotenv.config();
 
@@ -68,6 +68,29 @@ app.get("/campaigns/email/:email", async (req, res) => {
 });
 // http://localhost:5000/campaigns/email/jothi@gmail.com 
 
+
+
+app.patch("/campaigns/:id",async (req,res) => {
+  const {id} = req.params
+  const updateData = req.body
+
+  const result = await campaignsCollection.updateOne(
+    {_id: new ObjectId(id)},
+    {$set: updateData}
+  )
+res.json(result)
+})
+
+
+app.delete("/campaigns/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await campaignsCollection.deleteOne({
+    _id: new ObjectId(id),
+  });
+
+  res.json(result);
+});
 
 
 
