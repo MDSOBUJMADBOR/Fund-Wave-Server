@@ -33,7 +33,12 @@ async function run() {
     const usersCollection = database.collection("user");
 const campaignsCollection = database.collection("campaigns");
 
-    // Test Route
+
+
+
+
+// Admin Route 
+
     app.get("/user", async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
@@ -84,7 +89,7 @@ res.json(result)
 
 app.delete("/campaigns/:id", async (req, res) => {
   const id = req.params.id;
-
+ 
   const result = await campaignsCollection.deleteOne({
     _id: new ObjectId(id),
   });
