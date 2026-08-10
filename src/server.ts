@@ -50,6 +50,20 @@ app.delete("/user/:id", async (req,res) => {
   res.json(result);
 })
 
+app.patch("/user/:id",async (req, res) => {
+  const { id } = req.params;
+  const { role } = req.body;
+  const result = await usersCollection.updateOne(
+    {_id: new ObjectId(id as string)},
+    {$set: { role }}
+  )
+  res.json(result);
+})
+
+
+
+
+
 
 
 
