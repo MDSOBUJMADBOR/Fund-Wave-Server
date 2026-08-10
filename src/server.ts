@@ -44,6 +44,15 @@ const campaignsCollection = database.collection("campaigns");
       res.send(result);
     });
 
+app.delete("/user/:id", async (req,res) => {
+  const { id } = req.params;
+  const result = await usersCollection.deleteOne({_id: new ObjectId(id as string)});
+  res.json(result);
+})
+
+
+
+
 
 // Creator Route
 
