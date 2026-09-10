@@ -32,7 +32,7 @@ async function run() {
     // Collection
     const usersCollection = database.collection("user");
 const campaignsCollection = database.collection("campaigns");
-
+const withdrawalsCollection = database.collection("withdrawal")
 
 
 
@@ -59,6 +59,8 @@ app.patch("/user/:id",async (req, res) => {
   )
   res.json(result);
 })
+
+
 
 
 
@@ -121,6 +123,97 @@ app.delete("/campaigns/:id", async (req, res) => {
 });
 
 
+
+
+
+app.post("/withdrawals", async (req, res) => {
+  try {
+    const {
+      creator_email,
+      creator_name,
+      withdrawal_credit,
+      withdrawal_amount,
+      payment_system,
+      account_number,
+    } = req.body;
+
+    // Basic validation
+    if (
+      !creator_email ||
+      !creator_name ||
+      !withdrawal_credit ||
+      !payment_system ||
+      !account_number
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields are required",
+      });
+    }
+
+    // Minimum withdrawal
+    if (Number(withdrawal_credit) < 200) {
+      return res.status(400).json({
+        success: false,
+        message: "Minimum withdrawal is 200 credits",
+      });
+    }
+
+    // 20 credits = $1
+    const amount = Number(withdrawal_credit) / 20;
+
+    const withdrawalData = {
+      creator_email,
+      creator_name,
+      withdrawal_credit: Number(withdrawal_credit),
+      withdrawal_amount: amount,
+      payment_system,
+      account_number,
+
+      // Automatically current date/time
+      withdraw_date: new Date(),
+
+      // Default status
+      status: "pending",
+    };
+
+    const result = await withdrawalsCollection.insertOne(
+      withdrawalData
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Withdrawal request submitted successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Withdrawal POST error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create withdrawal request",
+    });
+  }
+});
+
+
+app.get("/withdrawals/email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await withdrawalsCollection
+      .find({ creator_email: email })
+      .toArray();
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+});
 
 
 
