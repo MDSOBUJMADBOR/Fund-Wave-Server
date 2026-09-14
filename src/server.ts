@@ -72,6 +72,32 @@ app.patch("/user/:id",async (req, res) => {
   });
 // http://localhost:5000/campaignss 
 
+app.get("/campaignss/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const campaign = await campaignsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: campaign,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to get campaign",
+    });
+  }
+});
 
 
 
