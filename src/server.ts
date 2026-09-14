@@ -39,7 +39,13 @@ const withdrawalsCollection = database.collection("withdrawal")
 
 // Admin Route 
 
-    app.get("/user", async (req, res) => {
+
+app.get("/campaigns", async (req,res) => {
+  const result = await campaignsCollection.find().toArray()
+  res.send(result);
+})
+
+app.get("/user", async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
@@ -59,6 +65,14 @@ app.patch("/user/:id",async (req, res) => {
   )
   res.json(result);
 })
+
+  app.get("/campaignss", async (req, res) => {
+    const result = await campaignsCollection.find({ status: "approved" }).toArray();
+    res.json(result);
+  });
+// http://localhost:5000/campaignss 
+
+
 
 
 
