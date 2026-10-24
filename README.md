@@ -245,5 +245,26 @@ npx vercel deploy --prod
 
 ---
 
+## 👨‍💻 Developer Profile
+
+<div align="center">
+
+### **MD. Sobuj Madbor**
+*Full-Stack Web Developer • Node.js, Express & MongoDB Specialist*
+
+[![GitHub Profile](https://img.shields.io/badge/GitHub-MDSOBUJMADBOR-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MDSOBUJMADBOR)
+[![Email Contact](https://img.shields.io/badge/Email-sobujmadbor660%40gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:sobujmadbor660@gmail.com)
+[![Live API](https://img.shields.io/badge/Live%20API-backend--one--chi--49.vercel.app-0070F3?style=for-the-badge&logo=vercel&logoColor=white)](https://backend-one-chi-49.vercel.app)
+
+</div>
+
+### 🌟 About the Developer
+- 🔭 **Backend & Full-Stack Developer** specialized in RESTful API engineering, MongoDB aggregation pipelines, Stripe payment systems, and event-driven architectures.
+- 💡 **Core Focus**: High-throughput microservices, transaction safety, safe credit escrow, and AI integrations with OpenAI.
+- 📬 **Contact**: [sobujmadbor660@gmail.com](mailto:sobujmadbor660@gmail.com) | [GitHub @MDSOBUJMADBOR](https://github.com/MDSOBUJMADBOR)
+
+---
+
 ## 📄 License
 This project is licensed under the [ISC License](LICENSE).
+
