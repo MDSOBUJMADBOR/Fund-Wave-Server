@@ -14,10 +14,15 @@ import {
 } from "mongodb";
 
 import Stripe from "stripe";
+import OpenAI from "openai";
 
 dotenv.config();
 
 const app = express();
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "",
+});
 
 const port =
   Number(process.env.PORT) || 5000;
@@ -95,6 +100,9 @@ let usersCollection: Collection;
 let campaignsCollection: Collection;
 let withdrawalsCollection: Collection;
 let paymentsCollection: Collection;
+let contributionsCollection: Collection;
+let reportsCollection: Collection;
+let notificationsCollection: Collection;
 
 // ======================================================
 // STRIPE WEBHOOK
@@ -686,6 +694,28 @@ async function run() {
         "payments"
       );
 
+    contributionsCollection =
+      database.collection(
+        "contributions"
+      );
+
+    reportsCollection =
+      database.collection(
+        "reports"
+      );
+
+    notificationsCollection =
+      database.collection(
+        "notifications"
+      );
+
+    await notificationsCollection.createIndex(
+      {
+        toEmail: 1,
+        time: -1,
+      }
+    );
+
     // ==================================================
     // PAYMENT UNIQUE INDEX
     // ==================================================
@@ -1002,6 +1032,8 @@ async function run() {
             await campaignsCollection.insertOne(
               {
                 ...campaign,
+                amount_raised:
+                  Number(campaign.amount_raised) || 0,
                 createdAt:
                   new Date(),
               }
@@ -1046,6 +1078,9 @@ async function run() {
                 creatorEmail:
                   email,
               })
+              .sort({
+                deadline: -1,
+              })
               .toArray();
 
           return res.status(200).json(
@@ -1077,6 +1112,8 @@ async function run() {
           const id =
             String(req.params.id);
 
+          const updateData = req.body || {};
+
           if (
             !ObjectId.isValid(id)
           ) {
@@ -1087,8 +1124,9 @@ async function run() {
             });
           }
 
-          const updateData =
-            req.body;
+          const existingCampaign = await campaignsCollection.findOne({
+            _id: new ObjectId(id),
+          });
 
           const result =
             await campaignsCollection.updateOne(
@@ -1103,6 +1141,30 @@ async function run() {
                 },
               }
             );
+
+          // Notify Creator when campaign status is updated by admin
+          if (existingCampaign && updateData.status) {
+            const creatorEmail = existingCampaign.creatorEmail || existingCampaign.creator_email;
+            const campaignTitle = existingCampaign.campaign_title || existingCampaign.title || "Campaign";
+
+            if (creatorEmail) {
+              if (updateData.status === "approved") {
+                await notificationsCollection.insertOne({
+                  message: `Your campaign '${campaignTitle}' has been approved by admin and is now live.`,
+                  toEmail: creatorEmail,
+                  actionRoute: "/dashboard/Creator/Mycampaigns",
+                  time: new Date(),
+                });
+              } else if (updateData.status === "rejected") {
+                await notificationsCollection.insertOne({
+                  message: `Your campaign '${campaignTitle}' was rejected by admin.`,
+                  toEmail: creatorEmail,
+                  actionRoute: "/dashboard/Creator/Mycampaigns",
+                  time: new Date(),
+                });
+              }
+            }
+          }
 
           return res.json(result);
         } catch (error) {
@@ -1140,6 +1202,49 @@ async function run() {
                 "Invalid campaign ID",
             });
           }
+
+          // Refund all approved supporters of this campaign
+          const approvedContributions =
+            await contributionsCollection
+              .find({
+                campaignId: id,
+                status: "approved",
+              })
+              .toArray();
+
+          for (const contribution of approvedContributions) {
+            if (
+              contribution.supporterEmail &&
+              contribution.amount
+            ) {
+              await usersCollection.updateOne(
+                {
+                  email:
+                    contribution.supporterEmail,
+                },
+                {
+                  $inc: {
+                    credits: Number(
+                      contribution.amount
+                    ),
+                  },
+                }
+              );
+            }
+          }
+
+          // Mark contributions as refunded
+          await contributionsCollection.updateMany(
+            {
+              campaignId: id,
+            },
+            {
+              $set: {
+                status: "refunded",
+                updatedAt: new Date(),
+              },
+            }
+          );
 
           const result =
             await campaignsCollection.deleteOne(
@@ -1382,6 +1487,90 @@ async function run() {
                 : "Failed to get credits",
             credits: 0,
           });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET USER PROFILE
+    // ==================================================
+
+    app.get(
+      "/users/profile/:email",
+      async (req: Request, res: Response) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+          if (!email) {
+            return res.status(400).json({ success: false, message: "Email is required" });
+          }
+
+          const user = await usersCollection.findOne({ email });
+          if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+          }
+
+          // Count user's contributions or campaigns
+          const contributionsCount = await contributionsCollection?.countDocuments({
+            Supporter_email: email,
+          }) || 0;
+
+          const campaignsCount = await campaignsCollection?.countDocuments({
+            $or: [{ creatorEmail: email }, { creator_email: email }],
+          }) || 0;
+
+          return res.status(200).json({
+            success: true,
+            user: {
+              id: user._id,
+              name: user.name,
+              email: user.email,
+              image: user.image || user.photo_url || null,
+              role: user.role || "Supporter",
+              credits: Number(user.credits ?? 0),
+              phone: user.phone || "",
+              bio: user.bio || "",
+              createdAt: user.createdAt,
+              status: user.status || "active",
+              contributionsCount,
+              campaignsCount,
+            },
+          });
+        } catch (error) {
+          console.error("Get user profile error:", error);
+          return res.status(500).json({ success: false, message: "Failed to get user profile" });
+        }
+      }
+    );
+
+    // ==================================================
+    // UPDATE USER PROFILE
+    // ==================================================
+
+    app.patch(
+      "/users/profile/:email",
+      async (req: Request, res: Response) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+          const { name, image, phone, bio } = req.body;
+          if (!email) {
+            return res.status(400).json({ success: false, message: "Email is required" });
+          }
+
+          const updateFields: Record<string, unknown> = { updatedAt: new Date() };
+          if (typeof name === "string" && name.trim()) updateFields.name = name.trim();
+          if (typeof image === "string") updateFields.image = image.trim();
+          if (typeof phone === "string") updateFields.phone = phone.trim();
+          if (typeof bio === "string") updateFields.bio = bio.trim();
+
+          const result = await usersCollection.updateOne({ email }, { $set: updateFields });
+          return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully",
+            result,
+          });
+        } catch (error) {
+          console.error("Update profile error:", error);
+          return res.status(500).json({ success: false, message: "Failed to update profile" });
         }
       }
     );
@@ -2014,7 +2203,525 @@ async function run() {
     );
 
 
-app.get("payment")
+    // ==================================================
+    // CREATE CONTRIBUTION
+    // ==================================================
+
+    app.post(
+      "/contributions",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const body = req.body || {};
+          const campaignId = body.campaign_id || body.campaignId;
+          const campaign_title = body.campaign_title || body.title || "Campaign";
+          const creatorEmail = body.creator_email || body.creatorEmail || "";
+          const creatorName = body.creator_name || body.creatorName || "Creator";
+          const supporterEmail = body.Supporter_email || body.supporterEmail || "";
+          const supporterName = body.Supporter_name || body.supporterName || "Supporter";
+          const amount = body.Contribution_amount || body.amount;
+          const message = body.message || "";
+
+          if (
+            !campaignId ||
+            !supporterEmail ||
+            !amount
+          ) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "Missing required contribution fields",
+            });
+          }
+
+          const contributionAmount = Number(amount);
+
+          if (
+            !Number.isFinite(contributionAmount) ||
+            contributionAmount <= 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid contribution amount",
+            });
+          }
+
+          // Check supporter balance
+          const supporter = await usersCollection.findOne({
+            email: supporterEmail,
+          });
+
+          if (!supporter) {
+            return res.status(404).json({
+              success: false,
+              message: "Supporter user account not found",
+            });
+          }
+
+          const availableCredits = Number(supporter.credits ?? 0);
+
+          if (availableCredits < contributionAmount) {
+            return res.status(400).json({
+              success: false,
+              message: "You do not have enough credits",
+            });
+          }
+
+          // Deduct credits from supporter
+          await usersCollection.updateOne(
+            { email: supporterEmail },
+            {
+              $inc: { credits: -contributionAmount },
+              $set: { updatedAt: new Date() },
+            }
+          );
+
+          const contributionData = {
+            campaign_id: String(campaignId),
+            campaignId: String(campaignId),
+            campaign_title: String(campaign_title),
+            creator_email: String(creatorEmail),
+            creatorEmail: String(creatorEmail),
+            creator_name: String(creatorName),
+            creatorName: String(creatorName),
+            Supporter_email: String(supporterEmail),
+            supporterEmail: String(supporterEmail),
+            Supporter_name: String(supporterName || supporter.name || "Anonymous"),
+            supporterName: String(supporterName || supporter.name || "Anonymous"),
+            Contribution_amount: contributionAmount,
+            amount: contributionAmount,
+            message: String(message || ""),
+            status: "pending",
+            current_date: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+
+          const insertResult = await contributionsCollection.insertOne(contributionData);
+
+          // Notify Creator about the new contribution
+          if (creatorEmail) {
+            const sName = supporterName || (supporter ? supporter.name : "A Supporter");
+            await notificationsCollection.insertOne({
+              message: `${sName} contributed ${contributionAmount} credits to your campaign '${campaign_title}'.`,
+              toEmail: String(creatorEmail),
+              actionRoute: "/dashboard/Creator/Home",
+              time: new Date(),
+            });
+          }
+
+          return res.status(201).json({
+            success: true,
+            message: "Contribution submitted successfully! It is pending approval.",
+            data: {
+              ...contributionData,
+              _id: insertResult.insertedId,
+            },
+          });
+        } catch (error) {
+          console.error("Create contribution error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to submit contribution",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET CONTRIBUTIONS FOR CREATOR
+    // ==================================================
+
+    app.get(
+      "/contributions/creator/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+          const status = req.query.status ? String(req.query.status) : null;
+
+          const query: Record<string, any> = {
+            creatorEmail: email,
+          };
+
+          if (status) {
+            query.status = status;
+          }
+
+          const results = await contributionsCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .toArray();
+
+          return res.status(200).json({
+            success: true,
+            data: results,
+          });
+        } catch (error) {
+          console.error("Get creator contributions error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch contributions",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET CONTRIBUTIONS FOR SUPPORTER
+    // ==================================================
+
+    app.get(
+      "/contributions/supporter/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+          const status = req.query.status ? String(req.query.status) : null;
+
+          const query: Record<string, any> = {
+            $or: [
+              { supporterEmail: email },
+              { Supporter_email: email },
+            ],
+          };
+
+          if (status) {
+            query.status = status;
+          }
+
+          const results = await contributionsCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .toArray();
+
+          return res.status(200).json({
+            success: true,
+            data: results,
+          });
+        } catch (error) {
+          console.error("Get supporter contributions error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch supporter contributions",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET SUPPORTER STATS
+    // ==================================================
+
+    app.get(
+      "/supporters/stats/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+
+          const user = await usersCollection.findOne({ email });
+          const contributions = await contributionsCollection
+            .find({
+              $or: [
+                { supporterEmail: email },
+                { Supporter_email: email },
+              ],
+            })
+            .toArray();
+
+          const totalContributionsCount = contributions.length;
+
+          const totalPendingContributionsCount = contributions.filter(
+            (c) => c.status === "pending"
+          ).length;
+
+          const approvedContributions = contributions.filter(
+            (c) => c.status === "approved"
+          );
+
+          const totalAmountContributed = approvedContributions.reduce(
+            (sum, c) => sum + (Number(c.Contribution_amount || c.amount) || 0),
+            0
+          );
+
+          return res.status(200).json({
+            success: true,
+            data: {
+              availableCredits: Number(user?.credits ?? 0),
+              totalContributionsCount,
+              totalPendingContributionsCount,
+              totalAmountContributed,
+            },
+          });
+        } catch (error) {
+          console.error("Supporter stats error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to calculate supporter stats",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // APPROVE CONTRIBUTION
+    // ==================================================
+
+    app.patch(
+      "/contributions/approve/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid contribution ID",
+            });
+          }
+
+          const contribution = await contributionsCollection.findOne({
+            _id: new ObjectId(id),
+          });
+
+          if (!contribution) {
+            return res.status(404).json({
+              success: false,
+              message: "Contribution not found",
+            });
+          }
+
+          if (contribution.status !== "pending") {
+            return res.status(400).json({
+              success: false,
+              message: `Contribution is already ${contribution.status}`,
+            });
+          }
+
+          // 1. Mark contribution as approved
+          await contributionsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: "approved",
+                approvedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          // 2. Add contribution amount to campaign's raised amount
+          if (ObjectId.isValid(contribution.campaignId)) {
+            await campaignsCollection.updateOne(
+              { _id: new ObjectId(contribution.campaignId) },
+              {
+                $inc: {
+                  amount_raised: Number(contribution.amount),
+                },
+                $set: {
+                  updatedAt: new Date(),
+                },
+              }
+            );
+          }
+
+          // 3. Notify Supporter
+          const sEmail = contribution.Supporter_email || contribution.supporterEmail;
+          const cAmount = contribution.Contribution_amount || contribution.amount || 0;
+          const campTitle = contribution.campaign_title || contribution.campaignTitle || "Campaign";
+          const crName = contribution.creator_name || contribution.creatorName || "Creator";
+
+          if (sEmail) {
+            await notificationsCollection.insertOne({
+              message: `Your Contribution of ${cAmount} credits to ${campTitle} was approved by ${crName}`,
+              toEmail: sEmail,
+              actionRoute: "/dashboard/Supporter/Home",
+              time: new Date(),
+            });
+          }
+
+          return res.status(200).json({
+            success: true,
+            message: "Contribution approved successfully!",
+          });
+        } catch (error) {
+          console.error("Approve contribution error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to approve contribution",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // REJECT CONTRIBUTION (REFUND SUPPORTER)
+    // ==================================================
+
+    app.patch(
+      "/contributions/reject/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid contribution ID",
+            });
+          }
+
+          const contribution = await contributionsCollection.findOne({
+            _id: new ObjectId(id),
+          });
+
+          if (!contribution) {
+            return res.status(404).json({
+              success: false,
+              message: "Contribution not found",
+            });
+          }
+
+          if (contribution.status !== "pending") {
+            return res.status(400).json({
+              success: false,
+              message: `Contribution is already ${contribution.status}`,
+            });
+          }
+
+          // 1. Mark contribution as rejected
+          await contributionsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: "rejected",
+                rejectedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          // 2. Refund credits back to supporter
+          if (contribution.supporterEmail && contribution.amount) {
+            await usersCollection.updateOne(
+              { email: contribution.supporterEmail },
+              {
+                $inc: { credits: Number(contribution.amount) },
+                $set: { updatedAt: new Date() },
+              }
+            );
+          }
+
+          // 3. Notify Supporter
+          const sEmail = contribution.Supporter_email || contribution.supporterEmail;
+          const cAmount = contribution.Contribution_amount || contribution.amount || 0;
+          const campTitle = contribution.campaign_title || contribution.campaignTitle || "Campaign";
+          const crName = contribution.creator_name || contribution.creatorName || "Creator";
+
+          if (sEmail) {
+            await notificationsCollection.insertOne({
+              message: `Your Contribution of ${cAmount} credits to ${campTitle} was rejected by ${crName}`,
+              toEmail: sEmail,
+              actionRoute: "/dashboard/Supporter/Mycontributions",
+              time: new Date(),
+            });
+          }
+
+          return res.status(200).json({
+            success: true,
+            message: "Contribution rejected and credits refunded to supporter.",
+          });
+        } catch (error) {
+          console.error("Reject contribution error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to reject contribution",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // CREATOR STATS & EARNINGS
+    // ==================================================
+
+    app.get(
+      "/creators/stats/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+
+          // 1. Fetch campaigns for this creator
+          const campaigns = await campaignsCollection
+            .find({ creatorEmail: email })
+            .toArray();
+
+          const totalCampaigns = campaigns.length;
+          const now = new Date();
+
+          const activeCampaigns = campaigns.filter((c) => {
+            if (!c.deadline) return true;
+            return new Date(c.deadline) >= now;
+          }).length;
+
+          const totalAmountRaised = campaigns.reduce(
+            (sum, c) => sum + (Number(c.amount_raised) || 0),
+            0
+          );
+
+          // 2. Fetch withdrawals for this creator
+          const withdrawals = await withdrawalsCollection
+            .find({ creator_email: email })
+            .toArray();
+
+          const totalWithdrawnCredits = withdrawals.reduce(
+            (sum, w) => sum + (Number(w.withdrawal_credit) || 0),
+            0
+          );
+
+          const availableCredits = Math.max(
+            0,
+            totalAmountRaised - totalWithdrawnCredits
+          );
+
+          return res.status(200).json({
+            success: true,
+            data: {
+              totalCampaigns,
+              activeCampaigns,
+              totalAmountRaised,
+              totalWithdrawnCredits,
+              availableCredits,
+              withdrawableDollars: availableCredits / 20,
+            },
+          });
+        } catch (error) {
+          console.error("Creator stats error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to calculate creator stats",
+          });
+        }
+      }
+    );
 
 
 
@@ -2028,6 +2735,687 @@ app.get("payment")
 
 
 
+
+    // ==================================================
+    // ADMIN STATS
+    // ==================================================
+
+    app.get(
+      "/admin/stats",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const totalSupporters = await usersCollection.countDocuments({
+            role: { $regex: /^supporter$/i },
+          });
+
+          const totalCreators = await usersCollection.countDocuments({
+            role: { $regex: /^creator$/i },
+          });
+
+          // Sum of all users' credits
+          const users = await usersCollection
+            .find({}, { projection: { credits: 1 } })
+            .toArray();
+
+          const totalAvailableCredits = users.reduce(
+            (sum, u) => sum + (Number(u.credits) || 0),
+            0
+          );
+
+          // Payments processed
+          const payments = await paymentsCollection.find({}).toArray();
+          const totalPaymentsCount = payments.length;
+          const totalPaymentsAmount = payments.reduce(
+            (sum, p) => sum + (Number(p.amountTotal) || 0),
+            0
+          ) / 100;
+
+          // Pending counts
+          const pendingCampaignsCount = await campaignsCollection.countDocuments({
+            status: "pending",
+          });
+
+          const pendingWithdrawalsCount = await withdrawalsCollection.countDocuments({
+            status: "pending",
+          });
+
+          const totalCampaignsCount = await campaignsCollection.countDocuments({});
+
+          return res.status(200).json({
+            success: true,
+            data: {
+              totalSupporters,
+              totalCreators,
+              totalAvailableCredits,
+              totalPaymentsCount,
+              totalPaymentsAmount,
+              pendingCampaignsCount,
+              pendingWithdrawalsCount,
+              totalCampaignsCount,
+            },
+          });
+        } catch (error) {
+          console.error("Admin stats error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch admin stats",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET ALL WITHDRAWALS (ADMIN)
+    // ==================================================
+
+    app.get(
+      "/withdrawals",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const status = req.query.status ? String(req.query.status) : null;
+          const query: Record<string, any> = {};
+
+          if (status) {
+            query.status = status;
+          }
+
+          const results = await withdrawalsCollection
+            .find(query)
+            .sort({ withdraw_date: -1 })
+            .toArray();
+
+          return res.status(200).json({
+            success: true,
+            data: results,
+          });
+        } catch (error) {
+          console.error("Admin get withdrawals error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch withdrawals",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // APPROVE WITHDRAWAL (PAYMENT SUCCESS)
+    // ==================================================
+
+    app.patch(
+      "/withdrawals/approve/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid withdrawal ID",
+            });
+          }
+
+          const withdrawal = await withdrawalsCollection.findOne({
+            _id: new ObjectId(id),
+          });
+
+          if (!withdrawal) {
+            return res.status(404).json({
+              success: false,
+              message: "Withdrawal request not found",
+            });
+          }
+
+          if (withdrawal.status === "approved") {
+            return res.status(400).json({
+              success: false,
+              message: "Withdrawal is already approved",
+            });
+          }
+
+          // 1. Change withdrawal request status to "approved"
+          await withdrawalsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: "approved",
+                approvedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          // 2. Decrease the creator's raised credits by withdrawal amount
+          const creatorEmail = withdrawal.creator_email;
+          const creditsToDeduct = Number(withdrawal.withdrawal_credit || 0);
+
+          const creatorCampaigns = await campaignsCollection
+            .find({ creatorEmail })
+            .sort({ amount_raised: -1 })
+            .toArray();
+
+          let remaining = creditsToDeduct;
+          for (const camp of creatorCampaigns) {
+            if (remaining <= 0) break;
+            const currentRaised = Number(camp.amount_raised || 0);
+            const deduct = Math.min(currentRaised, remaining);
+            if (deduct > 0) {
+              await campaignsCollection.updateOne(
+                { _id: camp._id },
+                {
+                  $inc: { amount_raised: -deduct },
+                  $set: { updatedAt: new Date() },
+                }
+              );
+              remaining -= deduct;
+            }
+          }
+
+          // Also deduct from user's credit record if present
+          await usersCollection.updateOne(
+            { email: creatorEmail },
+            {
+              $inc: { credits: -creditsToDeduct },
+              $set: { updatedAt: new Date() },
+            }
+          );
+
+          // 3. Notify Creator
+          if (creatorEmail) {
+            await notificationsCollection.insertOne({
+              message: `Your withdrawal request of ${withdrawal.withdrawal_credit} credits ($${withdrawal.withdrawal_amount}) was approved by admin.`,
+              toEmail: creatorEmail,
+              actionRoute: "/dashboard/Creator/Withdrawals",
+              time: new Date(),
+            });
+          }
+
+          return res.status(200).json({
+            success: true,
+            message: "Withdrawal request approved and creator credits deducted successfully.",
+          });
+        } catch (error) {
+          console.error("Approve withdrawal error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to approve withdrawal request",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // REJECT WITHDRAWAL
+    // ==================================================
+
+    app.patch(
+      "/withdrawals/reject/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid withdrawal ID",
+            });
+          }
+
+          await withdrawalsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: "rejected",
+                rejectedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          return res.status(200).json({
+            success: true,
+            message: "Withdrawal request rejected.",
+          });
+        } catch (error) {
+          console.error("Reject withdrawal error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to reject withdrawal",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET ALL REPORTS (ADMIN)
+    // ==================================================
+
+    app.get(
+      "/reports",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          // If empty, seed initial realistic sample reports for demonstration
+          const count = await reportsCollection.countDocuments();
+          if (count === 0) {
+            await reportsCollection.insertMany([
+              {
+                campaign_id: "seed_camp_1",
+                campaign_title: "High-Yield Quantum Crypto Farm",
+                reporter_name: "Alice Johnson",
+                reporter_email: "alice@example.com",
+                reason: "Suspected Ponzi scheme with unrealistic guaranteed 300% returns.",
+                status: "pending",
+                date: new Date(Date.now() - 86400000 * 2),
+                createdAt: new Date(Date.now() - 86400000 * 2),
+              },
+              {
+                campaign_id: "seed_camp_2",
+                campaign_title: "Perpetual Motion Clean Energy Generator",
+                reporter_name: "Marcus Aurelius",
+                reporter_email: "marcus@example.com",
+                reason: "Violates fundamental laws of physics; copied photos from patent sketches.",
+                status: "pending",
+                date: new Date(Date.now() - 86400000),
+                createdAt: new Date(Date.now() - 86400000),
+              },
+              {
+                campaign_id: "seed_camp_3",
+                campaign_title: "Community Dog Shelter Winter Heating",
+                reporter_name: "David Smith",
+                reporter_email: "david@example.com",
+                reason: "Creator using stolen stock photos of a shelter in another country.",
+                status: "pending",
+                date: new Date(),
+                createdAt: new Date(),
+              },
+            ]);
+          }
+
+          const reports = await reportsCollection
+            .find({})
+            .sort({ date: -1 })
+            .toArray();
+
+          return res.status(200).json({
+            success: true,
+            data: reports,
+          });
+        } catch (error) {
+          console.error("Get reports error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch reports",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // SUBMIT REPORT (SUPPORTERS)
+    // ==================================================
+
+    app.post(
+      "/reports",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const {
+            campaign_id,
+            campaign_title,
+            reporter_name,
+            reporter_email,
+            reason,
+          } = req.body;
+
+          if (!campaign_title || !reason) {
+            return res.status(400).json({
+              success: false,
+              message: "Campaign title and reason are required",
+            });
+          }
+
+          const reportDoc = {
+            campaign_id: String(campaign_id || ""),
+            campaign_title: String(campaign_title),
+            reporter_name: String(reporter_name || "Anonymous Supporter"),
+            reporter_email: String(reporter_email || ""),
+            reason: String(reason),
+            status: "pending",
+            date: new Date(),
+            createdAt: new Date(),
+          };
+
+          const result = await reportsCollection.insertOne(reportDoc);
+
+          return res.status(201).json({
+            success: true,
+            message: "Report submitted successfully",
+            data: {
+              ...reportDoc,
+              _id: result.insertedId,
+            },
+          });
+        } catch (error) {
+          console.error("Create report error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to submit report",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // SUSPEND CAMPAIGN (ADMIN)
+    // ==================================================
+
+    app.patch(
+      "/campaigns/suspend/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid campaign ID",
+            });
+          }
+
+          await campaignsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                status: "suspended",
+                suspendedAt: new Date(),
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          await reportsCollection.updateMany(
+            { campaign_id: id },
+            {
+              $set: {
+                status: "resolved",
+                resolvedAction: "suspended",
+                updatedAt: new Date(),
+              },
+            }
+          );
+
+          return res.status(200).json({
+            success: true,
+            message: "Campaign suspended successfully",
+          });
+        } catch (error) {
+          console.error("Suspend campaign error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to suspend campaign",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // DELETE REPORT (ADMIN)
+    // ==================================================
+
+    app.delete(
+      "/reports/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid report ID",
+            });
+          }
+
+          await reportsCollection.deleteOne({ _id: new ObjectId(id) });
+
+          return res.status(200).json({
+            success: true,
+            message: "Report dismissed and removed",
+          });
+        } catch (error) {
+          console.error("Delete report error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to delete report",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // GET NOTIFICATIONS FOR USER
+    // ==================================================
+
+    app.get(
+      "/notifications/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+
+          if (!email) {
+            return res.status(400).json({
+              success: false,
+              message: "Email is required",
+            });
+          }
+
+          // Case-insensitive match on toEmail, sorted descending by time
+          const notifications = await notificationsCollection
+            .find({
+              toEmail: { $regex: new RegExp(`^${email.trim()}$`, "i") },
+            })
+            .sort({ time: -1 })
+            .toArray();
+
+          return res.status(200).json({
+            success: true,
+            data: notifications,
+          });
+        } catch (error) {
+          console.error("Get notifications error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch notifications",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // DELETE NOTIFICATION
+    // ==================================================
+
+    app.delete(
+      "/notifications/:id",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const id = String(req.params.id);
+
+          if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid notification ID",
+            });
+          }
+
+          await notificationsCollection.deleteOne({ _id: new ObjectId(id) });
+
+          return res.status(200).json({
+            success: true,
+            message: "Notification removed",
+          });
+        } catch (error) {
+          console.error("Delete notification error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to delete notification",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // CLEAR ALL NOTIFICATIONS FOR USER
+    // ==================================================
+
+    app.delete(
+      "/notifications/clear/:email",
+      async (
+        req: Request,
+        res: Response
+      ) => {
+        try {
+          const email = decodeURIComponent(String(req.params.email));
+
+          await notificationsCollection.deleteMany({
+            toEmail: { $regex: new RegExp(`^${email.trim()}$`, "i") },
+          });
+
+          return res.status(200).json({
+            success: true,
+            message: "All notifications cleared",
+          });
+        } catch (error) {
+          console.error("Clear notifications error:", error);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to clear notifications",
+          });
+        }
+      }
+    );
+
+    // ==================================================
+    // AI CHATBOT ROUTE
+    // ==================================================
+
+    app.post("/api/chat", async (req: Request, res: Response) => {
+      try {
+        const { message } = req.body;
+        if (!message || typeof message !== "string") {
+          return res.status(400).json({ error: "Message is required" });
+        }
+
+        // Try OpenAI if API key is provided
+        if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.startsWith("sk-")) {
+          try {
+            const completion = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are FundWave AI Assistant, a friendly and helpful guide for the FundWave crowdfunding platform. FundWave allows Supporters to pledge credits (1 Credit = $1 USD) to creative and community campaigns. Creators can launch campaigns, submit milestone withdrawal requests, and approve backer contributions. If a contribution is rejected, credits are refunded instantly. Keep answers concise, polite, and helpful.",
+                },
+                { role: "user", content: message },
+              ],
+              max_tokens: 300,
+            });
+
+            const reply = completion.choices[0]?.message?.content;
+            if (reply) {
+              return res.json({ success: true, reply });
+            }
+          } catch (aiErr) {
+            console.warn("OpenAI API call encountered an error, falling back to knowledge base:", aiErr);
+          }
+        }
+
+        // Knowledge-base fallback for instant, accurate platform guidance
+        const lower = message.toLowerCase();
+        let reply =
+          "Hello! 👋 I am your FundWave AI Assistant. You can ask me how to contribute credits, launch campaigns, withdraw funds, or track project milestones!";
+
+        if (
+          lower.includes("credit") ||
+          lower.includes("buy") ||
+          lower.includes("purchase") ||
+          lower.includes("token")
+        ) {
+          reply =
+            "On FundWave, 1 platform credit equals $1.00 USD. You can top up your balance securely via Stripe under Dashboard > Purchase Credit. You can then use credits to pledge to any approved campaign!";
+        } else if (
+          lower.includes("withdraw") ||
+          lower.includes("payout") ||
+          lower.includes("bank")
+        ) {
+          reply =
+            "Creators can request withdrawals under Dashboard > Withdrawals once contributions are approved. Our administrative team reviews and approves payouts within 24–48 hours.";
+        } else if (
+          lower.includes("refund") ||
+          lower.includes("reject") ||
+          lower.includes("cancel")
+        ) {
+          reply =
+            "Your funds are 100% safe! If a Creator rejects your contribution, the pledged credits are immediately refunded back to your available balance.";
+        } else if (
+          lower.includes("campaign") ||
+          lower.includes("create") ||
+          lower.includes("launch")
+        ) {
+          reply =
+            "To start a campaign, register as a Creator and head over to Dashboard > Add New Campaign. Fill in your funding goal, story, category, and deadline. Once submitted, our admins verify it before it goes live!";
+        } else if (
+          lower.includes("contact") ||
+          lower.includes("support") ||
+          lower.includes("help") ||
+          lower.includes("email")
+        ) {
+          reply =
+            "You can reach our dedicated support desk at support@fundwave.com or via our Contact Page. We typically respond within a few business hours.";
+        } else if (
+          lower.includes("hello") ||
+          lower.includes("hi") ||
+          lower.includes("hey")
+        ) {
+          reply =
+            "Hello! 👋 Welcome to FundWave. How can I assist you with your crowdfunding journey today?";
+        }
+
+        return res.json({ success: true, reply });
+      } catch (error) {
+        console.error("Chat route error:", error);
+        return res.status(500).json({ error: "Failed to generate AI response" });
+      }
+    });
 
     // ==================================================
     // HEALTH CHECK
