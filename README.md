@@ -1,42 +1,31 @@
-# Fund Wave Server
+# ⚡ FundWave Server — Backend REST API & Services
 
-A secure and scalable backend API for **Fund Wave**, a crowdfunding and support-credit platform.
-The server is built with **Node.js, Express.js, TypeScript, MongoDB, and Stripe**.
+<div align="center">
 
-It provides APIs for user management, campaign management, withdrawals, credit purchases, payment history, and Stripe webhook processing.
+**Scalable, Secure, and Event-Driven Crowdfunding Backend API.**
+
+[![Live API](https://img.shields.io/badge/Live%20API-backend--one--chi--49.vercel.app-0070F3?style=for-the-badge&logo=vercel&logoColor=white)](https://backend-one-chi-49.vercel.app)
+[![Node.js](https://img.shields.io/badge/Node.js-20.x-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Express.js](https://img.shields.io/badge/Express.js-5.x-black?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://stripe.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com/)
+
+</div>
 
 ---
 
-## 🚀 Live Server
+## 📌 Architecture Overview
 
-**Production API:**
-Add your deployed Vercel URL here.
+**FundWave Server** provides robust, type-safe RESTful APIs, Stripe payment processing, asynchronous webhook handling, and an automated event-driven notification dispatch pipeline. It powers the FundWave crowdfunding platform with safe credit escrow, creator payout clearance, and AI-assisted chat functionality.
 
-Example:
+---
 
-```text
-https://your-fund-wave-server.vercel.app
-```
+## 🚀 Live Production API
 
-### Health Check
-
-```http
-GET /
-```
-
-Response:
-
-```text
-Fund Wave Server Running...
-```
-
-or:
-
-```http
-GET /health
-```
-
-Response:
+- **Base URL**: `https://backend-one-chi-49.vercel.app`
+- **Health Check**: `GET https://backend-one-chi-49.vercel.app/health`
 
 ```json
 {
@@ -47,811 +36,214 @@ Response:
 
 ---
 
-# 📌 Features
+## 🛠️ Technology Stack
 
-* User management
-* User role management
-* Campaign CRUD operations
-* Approved campaign filtering
-* Campaign search by creator email
-* Campaign details API
-* Withdrawal request system
-* Withdrawal history
-* User credit balance
-* Stripe Checkout integration
-* Stripe webhook verification
-* Credit package purchase
-* Payment history
-* Duplicate payment protection
-* MongoDB database integration
-* CORS support
-* Environment variable configuration
-* TypeScript-based backend
-* RESTful API architecture
-* Health check endpoint
+| Component | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Runtime** | Node.js (v20+) | Execution environment |
+| **Web Framework** | Express.js 5.x | High-throughput REST API routing |
+| **Language** | TypeScript | Type safety & maintainability |
+| **Database** | MongoDB Atlas (Native Driver 7.x) | Document storage & compound indexing |
+| **Payment Gateway** | Stripe SDK | Checkout sessions & raw signature webhooks |
+| **AI Assistant** | OpenAI SDK (`gpt-4o-mini`) | Contextual crowdfunding advisory engine |
+| **Middleware** | CORS, Dotenv, Raw Body Parsers | Security and configuration |
+| **Dev Tools** | `tsx` & `nodemon` | Hot reload and instant TypeScript compilation |
+| **Deployment** | Vercel Serverless Functions | Production hosting & global edge routing |
 
 ---
 
-# 🛠️ Technologies Used
+## 🗄️ Database Collections
 
-| Technology | Purpose                         |
-| ---------- | ------------------------------- |
-| Node.js    | JavaScript runtime              |
-| Express.js | Backend framework               |
-| TypeScript | Type-safe development           |
-| MongoDB    | Database                        |
-| Stripe     | Payment processing              |
-| CORS       | Cross-origin request handling   |
-| dotenv     | Environment variable management |
-| tsx        | Development server              |
-| Vercel     | Deployment                      |
+- `users`: User profiles, roles (`Supporter`, `Creator`, `Admin`), credits balance, and metadata.
+- `campaigns`: Crowdfunding projects, stories, images, funding goals, amounts raised, and approval statuses.
+- `contributions`: Backer pledges, credit amounts, status tracking (`pending`, `approved`, `rejected`), and escrow state.
+- `withdrawal`: Creator payout requests, bank details, and admin clearance statuses.
+- `payments`: Stripe transaction logs, session IDs, and duplicate fulfillment prevention records.
+- `notifications`: Real-time system notifications with timestamps and target route redirection.
+- `reports`: Flagged campaigns and user trust/safety compliance reports.
 
 ---
 
-# 📂 Project Structure
+## 📡 Comprehensive API Reference
 
-```text
-fund-wave-server/
-│
-├── src/
-│   └── server.ts
-│
-├── dist/
-│   └── server.js
-│
-├── .env
-├── .gitignore
-├── package.json
-├── tsconfig.json
-└── README.md
+### 1. System & Health
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `GET` | `/` | Root server status |
+| `GET` | `/health` | Server health check probe |
+
+---
+
+### 2. Notifications System
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `GET` | `/notifications/:email` | Get user notifications sorted descending by `time: -1` |
+| `DELETE` | `/notifications/:id` | Dismiss a single notification by MongoDB ObjectId |
+| `DELETE` | `/notifications/clear/:email` | Clear all notifications for a specific user |
+
+**Notification Document Schema:**
+```json
+{
+  "_id": "67123456789abcdef0123456",
+  "message": "Your Contribution of 50 credits to Clean Water Initiative was approved by Alex Rivers",
+  "toEmail": "supporter@example.com",
+  "actionRoute": "/dashboard/Supporter/Home",
+  "time": "2026-10-24T20:00:00.000Z"
+}
 ```
 
 ---
 
-# ⚙️ Installation
+### 3. AI Assistant
+| Method | Route | Payload | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/chat` | `{ "message": "string" }` | Returns conversational AI response with knowledge-base fallback |
 
-Clone the repository:
+---
 
+### 4. Users & Profiles
+| Method | Route | Payload / Description |
+| :--- | :--- | :--- |
+| `GET` | `/users` | Returns list of all registered users (Admin protected) |
+| `GET` | `/users/:id` | Get single user by ID |
+| `PATCH` | `/users/role/:id` | `{ "role": "Creator" \| "Supporter" \| "Admin" }` — Updates role |
+| `GET` | `/users/credits/:email` | Returns user's live credit balance |
+| `GET` | `/users/profile/:email` | Returns comprehensive profile + contributions & campaign counts |
+| `PATCH` | `/users/profile/:email` | `{ "name", "image", "phone", "bio" }` — Updates user profile |
+| `DELETE` | `/users/:id` | Deletes user record |
+
+---
+
+### 5. Campaigns
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `GET` | `/campaignss` | Returns all **approved** campaigns (Public explore feed) |
+| `GET` | `/campaigns` | Returns all campaigns across all statuses (Admin feed) |
+| `GET` | `/campaignss/:id` | Retrieve single campaign details |
+| `POST` | `/campaigns` | Create new campaign (Defaults status to `pending`) |
+| `PATCH` | `/campaigns/:id` | Update campaign details or status (`approved` / `rejected`). *Triggers creator notification automatically.* |
+| `DELETE` | `/campaigns/:id` | Delete campaign record |
+| `GET` | `/campaigns/email/:email`| Retrieve campaigns launched by specific creator |
+
+---
+
+### 6. Contributions & Pledges (Safe Escrow)
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `POST` | `/contributions` | Create new contribution with credits. *Deducts supporter credits into escrow & notifies Creator.* |
+| `GET` | `/contributions/supporter/:email` | List all contributions made by a supporter |
+| `GET` | `/contributions/creator/:email` | List all pending & reviewed contributions for creator campaigns |
+| `PATCH` | `/contributions/approve/:id` | Approves pledge. *Increases campaign `amount_raised` & notifies Supporter.* |
+| `PATCH` | `/contributions/reject/:id` | Rejects pledge. *Instantly refunds credits to Supporter & notifies Supporter.* |
+
+---
+
+### 7. Creator Withdrawals
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `POST` | `/withdrawals` | Creator submits withdrawal request for raised credits |
+| `GET` | `/withdrawals` | Admin queue of all pending withdrawal requests |
+| `GET` | `/withdrawals/:email` | Creator's withdrawal request history |
+| `PATCH` | `/withdrawals/approve/:id` | Admin marks payment success. *Decreases creator raised credits & notifies Creator.* |
+
+---
+
+### 8. Stripe Payments & Webhooks
+| Method | Route | Description |
+| :--- | :--- | :--- |
+| `POST` | `/payments/create-checkout-session` | Initiates Stripe Checkout session for credit packages (50, 100, 250, 500) |
+| `POST` | `/payments/webhook` | Raw body Stripe event webhook. *Fulfills credits upon `checkout.session.completed` with idempotency protection.* |
+| `GET` | `/payments/history/:email` | Backer payment receipt and top-up history |
+
+---
+
+## ⚙️ Local Development Setup
+
+### 1. Prerequisites
+- **Node.js**: v18.18+ or v20+
+- **MongoDB Atlas Connection URI**
+- **Stripe Account** (Secret Key & Webhook Secret)
+
+### 2. Clone Repository
 ```bash
 git clone https://github.com/MDSOBUJMADBOR/Fund-Wave-Server.git
-```
-
-Go to the project directory:
-
-```bash
 cd Fund-Wave-Server
 ```
 
-Install dependencies:
-
+### 3. Install Dependencies
 ```bash
 npm install
 ```
 
----
-
-# 🔐 Environment Variables
-
-Create a `.env` file in the root directory.
+### 4. Configure Environment Variables
+Create a `.env` file in the root directory:
 
 ```env
 PORT=5000
-
-DATABASE_URL=your_mongodb_connection_string
-
+DATABASE_URL=mongodb+srv://<username>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority
 DATABASE_NAME=FundWave
 
-STRIPE_SECRET_KEY=your_stripe_secret_key
-
-STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
-
+# Client URL (for CORS and redirects)
 CLIENT_URL=http://localhost:3000
+
+# Stripe Configuration
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# AI Assistant (Optional)
+OPENAI_API_KEY=sk-proj-...
 ```
 
-### Environment Variable Description
-
-| Variable                | Description                   |
-| ----------------------- | ----------------------------- |
-| `PORT`                  | Backend server port           |
-| `DATABASE_URL`          | MongoDB connection URI        |
-| `DATABASE_NAME`         | MongoDB database name         |
-| `STRIPE_SECRET_KEY`     | Stripe secret API key         |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
-| `CLIENT_URL`            | Frontend application URL      |
-
-> Never commit your `.env` file to GitHub.
-
----
-
-# ▶️ Run the Project
-
-## Development
-
+### 5. Start Development Server
 ```bash
 npm run dev
 ```
+The server will boot on **http://localhost:5000**.
 
-The development server will run on:
-
-```text
-http://localhost:5000
-```
-
----
-
-## Production Build
-
-First build the TypeScript project:
-
+### 6. Build for Production
 ```bash
 npm run build
-```
-
-Then start the compiled server:
-
-```bash
 npm start
 ```
 
 ---
 
-# 💳 Stripe Credit Packages
+## 🚀 Deployment to Vercel
 
-Fund Wave provides the following credit packages:
-
-| Credits | Price |
-| ------: | ----: |
-|     100 |   $10 |
-|     300 |   $25 |
-|     800 |   $60 |
-|    1500 |  $110 |
-
-### Credit Conversion
-
-For withdrawals:
-
-```text
-20 credits = $1
-```
-
-Minimum withdrawal:
-
-```text
-200 credits
-```
-
----
-
-# 🔗 API Documentation
-
-## 1. Root
-
-### GET `/`
-
-Checks whether the server is running.
-
-```http
-GET /
-```
-
-Response:
-
-```text
-Fund Wave Server Running...
-```
-
----
-
-# ❤️ Campaign APIs
-
-## Get All Campaigns
-
-```http
-GET /campaigns
-```
-
-Returns all campaigns.
-
----
-
-## Get Approved Campaigns
-
-```http
-GET /campaignss
-```
-
-Returns campaigns where:
+The backend includes a pre-configured `vercel.json` file designed for `@vercel/node` serverless function execution:
 
 ```json
 {
-  "status": "approved"
-}
-```
-
----
-
-## Get Single Campaign
-
-```http
-GET /campaignss/:id
-```
-
-Example:
-
-```http
-GET /campaignss/68d123456789abcdef123456
-```
-
----
-
-## Create Campaign
-
-```http
-POST /campaigns
-```
-
-Example request:
-
-```json
-{
-  "title": "Help Build a School",
-  "description": "Support our community education project.",
-  "targetAmount": 5000,
-  "status": "pending",
-  "creatorEmail": "user@example.com"
-}
-```
-
----
-
-## Get Campaigns by Email
-
-```http
-GET /campaigns/email/:email
-```
-
-Example:
-
-```http
-GET /campaigns/email/user@example.com
-```
-
-Returns campaigns created by a specific user.
-
----
-
-## Update Campaign
-
-```http
-PATCH /campaigns/:id
-```
-
-Example:
-
-```json
-{
-  "title": "Updated Campaign Title",
-  "status": "approved"
-}
-```
-
----
-
-## Delete Campaign
-
-```http
-DELETE /campaigns/:id
-```
-
-Deletes a campaign by MongoDB ObjectId.
-
----
-
-# 👤 User APIs
-
-## Get All Users
-
-```http
-GET /user
-```
-
-Returns all registered users.
-
----
-
-## Delete User
-
-```http
-DELETE /user/:id
-```
-
-Deletes a user using MongoDB ObjectId.
-
----
-
-## Update User Role
-
-```http
-PATCH /user/:id
-```
-
-Example:
-
-```json
-{
-  "role": "admin"
-}
-```
-
----
-
-# 💰 Credit APIs
-
-## Get User Credits
-
-```http
-GET /users/credits/:email
-```
-
-Example:
-
-```http
-GET /users/credits/user@example.com
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "email": "user@example.com",
-  "name": "John Doe",
-  "credits": 500
-}
-```
-
----
-
-# 💸 Withdrawal APIs
-
-## Create Withdrawal Request
-
-```http
-POST /withdrawals
-```
-
-Example:
-
-```json
-{
-  "creator_email": "user@example.com",
-  "creator_name": "John Doe",
-  "withdrawal_credit": 200,
-  "payment_system": "bkash",
-  "account_number": "01XXXXXXXXX"
-}
-```
-
-The server converts credits using:
-
-```text
-20 credits = $1
-```
-
-For example:
-
-```text
-200 credits = $10
-```
-
-Withdrawal status is initially:
-
-```text
-pending
-```
-
----
-
-## Get Withdrawal History
-
-```http
-GET /withdrawals/email/:email
-```
-
-Returns withdrawal requests for a specific user.
-
-The newest withdrawal is returned first.
-
----
-
-# 💳 Stripe Payment APIs
-
-## Create Checkout Session
-
-```http
-POST /payments/create-checkout-session
-```
-
-Request:
-
-```json
-{
-  "email": "user@example.com",
-  "credits": 300
-}
-```
-
-The backend validates the credit package and creates a Stripe Checkout Session.
-
-Response:
-
-```json
-{
-  "success": true,
-  "url": "https://checkout.stripe.com/...",
-  "sessionId": "cs_test_..."
-}
-```
-
-The frontend can redirect the user to the returned `url`.
-
----
-
-# 🔔 Stripe Webhook
-
-```http
-POST /payments/webhook
-```
-
-This endpoint receives Stripe webhook events.
-
-The server verifies the Stripe signature before processing the event.
-
-Currently handled event:
-
-```text
-checkout.session.completed
-```
-
-The webhook checks:
-
-1. Stripe signature
-2. Payment status
-3. User email
-4. Purchased credits
-5. Allowed credit package
-6. Duplicate payment
-7. User existence
-8. Payment history
-9. User credit update
-
----
-
-# 🔒 Duplicate Payment Protection
-
-The backend creates a unique MongoDB index:
-
-```text
-stripeSessionId
-```
-
-This prevents the same Stripe Checkout Session from being processed multiple times.
-
-Allowed credit packages:
-
-```text
-100
-300
-800
-1500
-```
-
----
-
-# 🧾 Payment History
-
-## Get Payment History
-
-```http
-GET /payments/:email
-```
-
-Example:
-
-```http
-GET /payments/user@example.com
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "data": [
+  "version": 2,
+  "builds": [
     {
-      "stripeSessionId": "cs_test_...",
-      "paymentIntentId": "pi_...",
-      "email": "user@example.com",
-      "credits": 300,
-      "amountTotal": 2500,
-      "currency": "usd",
-      "paymentStatus": "paid",
-      "paymentType": "credit_purchase"
+      "src": "src/server.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/server.ts",
+      "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     }
   ]
 }
 ```
 
----
-
-# 🔎 Get Stripe Payment Session
-
-```http
-GET /payments/session/:sessionId
-```
-
-This endpoint retrieves payment information directly from Stripe.
-
-It returns:
-
-* Session ID
-* Payment status
-* Checkout status
-* Customer email
-* Amount
-* Currency
-* Metadata
-* Payment Intent
-* Created timestamp
-
----
-
-# 🗃️ Database Collections
-
-The project uses MongoDB with the following collections:
-
-```text
-user
-campaigns
-withdrawal
-payments
-```
-
-### User
-
-Stores user information and credit balance.
-
-Important field:
-
-```text
-credits
-```
-
-### Campaigns
-
-Stores crowdfunding campaign information.
-
-### Withdrawal
-
-Stores withdrawal requests.
-
-### Payments
-
-Stores Stripe payment history.
-
-Important field:
-
-```text
-stripeSessionId
-```
-
-A unique index is created for this field.
-
----
-
-# 🔄 Payment Flow
-
-```text
-User
-  │
-  ▼
-Select Credit Package
-  │
-  ▼
-Frontend
-  │
-  ▼
-POST /payments/create-checkout-session
-  │
-  ▼
-Express Server
-  │
-  ▼
-Stripe Checkout
-  │
-  ▼
-User Completes Payment
-  │
-  ▼
-Stripe Webhook
-  │
-  ▼
-POST /payments/webhook
-  │
-  ├── Verify Stripe Signature
-  │
-  ├── Check Payment Status
-  │
-  ├── Validate Credits
-  │
-  ├── Check Duplicate Payment
-  │
-  ├── Save Payment History
-  │
-  └── Add Credits to User
-  │
-  ▼
-MongoDB
-```
-
----
-
-# 🛡️ Security Considerations
-
-The backend includes several security-related measures:
-
-* Stripe webhook signature verification
-* Stripe secret key stored in environment variables
-* MongoDB credentials stored in environment variables
-* Duplicate payment protection
-* MongoDB ObjectId validation
-* Credit package validation
-* Payment status validation
-* CORS support
-* Environment-based configuration
-
----
-
-# 📡 Stripe Webhook Setup
-
-For local development, Stripe CLI can be used to forward webhook events.
-
-Example:
-
+Deploy instantly using Vercel CLI:
 ```bash
-stripe listen --forward-to localhost:5000/payments/webhook
-```
-
-Stripe CLI will provide a webhook signing secret.
-
-Add it to `.env`:
-
-```env
-STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxx
-```
-
-For production, configure the Stripe Dashboard webhook endpoint:
-
-```text
-https://your-domain.com/payments/webhook
+npx vercel deploy --prod
 ```
 
 ---
 
-# 🚀 Deployment
-
-The backend can be deployed to platforms such as Vercel or other Node.js hosting services.
-
-Before deployment:
-
-```bash
-npm run build
-```
-
-Make sure the production environment variables are configured:
-
-```env
-DATABASE_URL=...
-DATABASE_NAME=FundWave
-STRIPE_SECRET_KEY=...
-STRIPE_WEBHOOK_SECRET=...
-CLIENT_URL=...
-```
-
-After deployment, verify:
-
-```http
-GET /health
-```
-
-Expected response:
-
-```json
-{
-  "success": true,
-  "message": "Fund Wave API is running"
-}
-```
+## 🔒 Security & Data Integrity
+- **Raw Webhook Verification**: Stripe webhooks utilize raw cryptographic signatures to prevent man-in-the-middle attacks.
+- **Atomic Operations**: Database modifications for balance updates and contribution refunds use atomic `$inc` operations.
+- **Idempotency**: Completed payment sessions are indexed to eliminate double credit allocations.
 
 ---
 
-# 🧪 Testing
-
-You can test the API using:
-
-* Postman
-* Thunder Client
-* Insomnia
-* Browser for GET endpoints
-* Stripe CLI for webhook testing
-
-Example:
-
-```text
-GET http://localhost:5000/health
-```
-
----
-
-# 📦 Available Scripts
-
-### Development
-
-```bash
-npm run dev
-```
-
-Runs the server using `tsx watch`.
-
-### Build
-
-```bash
-npm run build
-```
-
-Compiles TypeScript into JavaScript.
-
-### Production
-
-```bash
-npm start
-```
-
-Runs:
-
-```text
-dist/server.js
-```
-
----
-
-# 👨‍💻 Author
-
-**MD. SOBUJ MADBOR**
-
-MERN Stack Developer / Junior Full Stack Developer
-
-### Skills
-
-* HTML
-* CSS
-* Tailwind CSS
-* JavaScript
-* TypeScript
-* React.js
-* Next.js
-* Node.js
-* Express.js
-* MongoDB
-* Stripe API
-
----
-
-# 📄 License
-
-This project is developed for educational and portfolio purposes.
-
-```text
-© 2026 MD. SOBUJ MADBOR
-```
-
+## 📄 License
+This project is licensed under the [ISC License](LICENSE).
